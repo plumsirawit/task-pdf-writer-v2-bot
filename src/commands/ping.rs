@@ -1,4 +1,4 @@
-use crate::util::{get_name, get_url};
+use crate::util::{get_metadata, get_name};
 
 use serenity::builder::CreateApplicationCommand;
 use serenity::model::application::interaction::application_command::ApplicationCommandInteraction;
@@ -21,15 +21,15 @@ pub async fn run(
         command.channel_id.join_thread(&ctx.http).await.unwrap();
     }
     let name = get_name(command.channel_id, &ctx).await;
-    let url = get_url(command.guild_id.unwrap(), database).await;
+    let mdata = get_metadata(command.guild_id.unwrap(), database).await;
     return {
         (match name {
             Err(e) => e.to_string(),
             Ok(s) => s,
         }) + " | "
-            + (match url {
+            + (match mdata {
                 Err(e) => e.to_string(),
-                Ok(s) => s,
+                Ok((s, t)) => s + ", " + t.as_str(),
             })
             .as_str()
     };

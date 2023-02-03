@@ -30,47 +30,70 @@ impl EventHandler for Handler {
         if let Interaction::ApplicationCommand(command) = interaction {
             println!("Received command interaction: {:#?}", command);
 
-            if command.data.name.as_str() == "genpdf" {
+            if command.data.name.as_str() == "genpdf" || command.data.name.as_str() == "config" {
                 if let Err(why) = command
                     .create_interaction_response(&ctx.http, |response| {
-                        response
-                            .kind(InteractionResponseType::DeferredChannelMessageWithSource)
-                            .interaction_response_data(|message| {
-                                message.content("Generation in progress . . .")
-                            })
+                        response.kind(InteractionResponseType::DeferredChannelMessageWithSource)
                     })
                     .await
                 {
                     println!("Cannot respond to slash command: {}", why);
                 }
-                let file = match commands::genpdf::run(&command, &ctx, &self.database).await {
-                    Ok(f) => f,
-                    Err(e) => {
+                match command.data.name.as_str() {
+                    "genpdf" => {
+                        let file = match commands::genpdf::run(&command, &ctx, &self.database).await
+                        {
+                            Ok(f) => f,
+                            Err(e) => {
+                                if let Err(why) = command
+                                    .create_followup_message(&ctx.http, |response| {
+                                        response.content(
+                                            "[ERROR] ".to_string() + e.to_string().as_str(),
+                                        )
+                                    })
+                                    .await
+                                {
+                                    println!("Cannot respond to slash command: {}", why);
+                                }
+                                return;
+                            }
+                        };
+
                         if let Err(why) = command
                             .create_followup_message(&ctx.http, |response| {
-                                response.content("[ERROR] ".to_string() + e.to_string().as_str())
+                                response.add_file(file.as_str())
                             })
                             .await
                         {
                             println!("Cannot respond to slash command: {}", why);
                         }
-                        return;
+                        if let Err(why) = fs::remove_file(file.to_owned()) {
+                            println!("Cannot remove file {} because of {}", file.to_owned(), why);
+                        }
+                    }
+                    "config" => {
+                        let retst = commands::config::run(&command, &ctx, &self.database).await;
+                        if let Err(why) = command
+                            .create_followup_message(&ctx.http, |response| response.content(retst))
+                            .await
+                        {
+                            println!("Cannot respond to slash command: {}", why);
+                        }
+                    }
+                    _ => {
+                        if let Err(why) = command
+                            .create_followup_message(&ctx.http, |response| {
+                                response.content("not implemented")
+                            })
+                            .await
+                        {
+                            println!("Cannot respond to slash command: {}", why);
+                        }
                     }
                 };
-
-                if let Err(why) = command
-                    .create_followup_message(&ctx.http, |response| response.add_file(file.as_str()))
-                    .await
-                {
-                    println!("Cannot respond to slash command: {}", why);
-                }
-                if let Err(why) = fs::remove_file(file.to_owned()) {
-                    println!("Cannot remove file {} because of {}", file.to_owned(), why);
-                }
             } else {
                 let content = match command.data.name.as_str() {
                     "ping" => commands::ping::run(&command, &ctx, &self.database).await,
-                    "config" => commands::config::run(&command, &ctx, &self.database).await,
                     _ => "not implemented :(".to_string(),
                 };
 

@@ -1,4 +1,4 @@
-use crate::util::{get_name, get_url, prep_repo};
+use crate::util::{get_metadata, get_name, prep_repo};
 
 use base64::{engine::general_purpose, Engine};
 use serenity::builder::CreateApplicationCommand;
@@ -10,10 +10,13 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::{env, fs};
 
-fn retrieve_config(repo: &Repository) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let json_string =
-        fs::read_to_string(repo.path().join("..").join("contest").join("config.json"))
-            .expect("file read failed");
+fn retrieve_config(
+    repo: &Repository,
+    reldir: String,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let current_path = repo.path().join("..").join(reldir).join("config.json");
+    println!("{}", current_path.display());
+    let json_string = fs::read_to_string(current_path).expect("file read failed");
     return Ok(serde_json::from_str(json_string.as_str()).expect("JSON was not well-formatted"));
 }
 
@@ -57,17 +60,17 @@ pub async fn run(
     let name = get_name(command.channel_id, &ctx)
         .await
         .expect("channel name");
-    let url = get_url(command.guild_id.unwrap(), database)
+    let (url, reldir) = get_metadata(command.guild_id.unwrap(), database)
         .await
-        .expect("get url");
+        .expect("get url and reldir");
     let repo = prep_repo(command.guild_id.unwrap(), url)
         .await
         .expect("repo prepped");
-    let config_json = retrieve_config(&repo).expect("JSON retreival failed");
+    let config_json = retrieve_config(&repo, reldir.to_owned()).expect("JSON retreival failed");
     let md_path = repo
         .path()
         .join("..")
-        .join("contest")
+        .join(reldir)
         .join(name.clone() + ".md");
     if !md_path.is_file() {
         return Err("file not found".into());
