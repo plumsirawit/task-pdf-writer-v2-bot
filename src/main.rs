@@ -1,14 +1,15 @@
 mod commands;
+mod util;
 
-use std::env;
+extern crate dotenv;
 
-use futures::future::join_all;
+use dotenv::dotenv;
+use std::{env, fs};
 
 use serenity::async_trait;
 use serenity::framework::standard::macros::{command, group};
 use serenity::framework::standard::{CommandResult, StandardFramework};
 use serenity::model::application::interaction::{Interaction, InteractionResponseType};
-use serenity::model::channel::ChannelType;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::model::id::GuildId;
@@ -19,7 +20,9 @@ use serenity::prelude::*;
 #[commands(ping)]
 struct General;
 
-struct Handler;
+struct Handler {
+    database: sqlx::SqlitePool,
+}
 
 #[async_trait]
 impl EventHandler for Handler {
@@ -27,21 +30,60 @@ impl EventHandler for Handler {
         if let Interaction::ApplicationCommand(command) = interaction {
             println!("Received command interaction: {:#?}", command);
 
-            let content = match command.data.name.as_str() {
-                "ping" => commands::ping::run(&command, &ctx).await,
-                "genpdf" => commands::genpdf::run(&command.data.options).await,
-                _ => "not implemented :(".to_string(),
-            };
+            if command.data.name.as_str() == "genpdf" {
+                if let Err(why) = command
+                    .create_interaction_response(&ctx.http, |response| {
+                        response
+                            .kind(InteractionResponseType::DeferredChannelMessageWithSource)
+                            .interaction_response_data(|message| {
+                                message.content("Generation in progress . . .")
+                            })
+                    })
+                    .await
+                {
+                    println!("Cannot respond to slash command: {}", why);
+                }
+                let file = match commands::genpdf::run(&command, &ctx, &self.database).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        if let Err(why) = command
+                            .create_followup_message(&ctx.http, |response| {
+                                response.content("[ERROR] ".to_string() + e.to_string().as_str())
+                            })
+                            .await
+                        {
+                            println!("Cannot respond to slash command: {}", why);
+                        }
+                        return;
+                    }
+                };
 
-            if let Err(why) = command
-                .create_interaction_response(&ctx.http, |response| {
-                    response
-                        .kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|message| message.content(content))
-                })
-                .await
-            {
-                println!("Cannot respond to slash command: {}", why);
+                if let Err(why) = command
+                    .create_followup_message(&ctx.http, |response| response.add_file(file.as_str()))
+                    .await
+                {
+                    println!("Cannot respond to slash command: {}", why);
+                }
+                if let Err(why) = fs::remove_file(file.to_owned()) {
+                    println!("Cannot remove file {} because of {}", file.to_owned(), why);
+                }
+            } else {
+                let content = match command.data.name.as_str() {
+                    "ping" => commands::ping::run(&command, &ctx, &self.database).await,
+                    "config" => commands::config::run(&command, &ctx, &self.database).await,
+                    _ => "not implemented :(".to_string(),
+                };
+
+                if let Err(why) = command
+                    .create_interaction_response(&ctx.http, |response| {
+                        response
+                            .kind(InteractionResponseType::ChannelMessageWithSource)
+                            .interaction_response_data(|message| message.content(content))
+                    })
+                    .await
+                {
+                    println!("Cannot respond to slash command: {}", why);
+                }
             }
         }
     }
@@ -59,6 +101,7 @@ impl EventHandler for Handler {
                 commands
                     .create_application_command(|command| commands::ping::register(command))
                     .create_application_command(|command| commands::genpdf::register(command))
+                    .create_application_command(|command| commands::config::register(command))
             })
             .await;
 
@@ -95,15 +138,30 @@ impl EventHandler for Handler {
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
+
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("~")) // set the bot's prefix to "~"
         .group(&GENERAL_GROUP);
 
     // Login with a bot token from the environment
     let token = env::var("DISCORD_TOKEN").expect("token");
+    let database = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename("database.sqlite")
+                .create_if_missing(true),
+        )
+        .await
+        .expect("Couldn't connect to database");
+    sqlx::migrate!("./migrations")
+        .run(&database)
+        .await
+        .expect("Couldn't run database migrations");
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
     let mut client = Client::builder(token, intents)
-        .event_handler(Handler)
+        .event_handler(Handler { database })
         .framework(framework)
         .await
         .expect("Error creating client");
