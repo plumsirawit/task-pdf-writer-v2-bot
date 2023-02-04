@@ -1,4 +1,5 @@
 mod commands;
+mod traits;
 mod util;
 
 extern crate dotenv;
