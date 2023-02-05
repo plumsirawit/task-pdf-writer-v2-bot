@@ -113,11 +113,9 @@ async fn serenity(
     #[shuttle_shared_db::Postgres] database: PgPool,
     #[shuttle_secrets::Secrets] secret_store: SecretStore
 ) -> shuttle_service::ShuttleSerenity {
-    dotenv().ok();
-    info!("[DEBUG] {}", env::var("DISCORD_TOKEN").unwrap());
-
+    
     // Login with a bot token from the environment
-    let token = env::var("DISCORD_TOKEN").expect("token");
+    let token = secret_store.get("DISCORD_TOKEN").context("'DISCORD_TOKEN' was not found")?;
     // let database = sqlx::postgres::PgPoolOptions::new()
     //     .max_connections(5)
     //     .connect("postgres://postgres:welcome@localhost/postgres")

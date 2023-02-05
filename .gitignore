@@ -15,6 +15,7 @@ Cargo.lock
 
 # Configuration secrets
 secret*
+Secrets.toml
 .config.toml
 .env
 
