@@ -8,9 +8,6 @@ use commands::ping::PingHandler;
 use commands::sendstr::SendStrHandler;
 use traits::CommandHandle;
 
-extern crate dotenv;
-
-use dotenv::dotenv;
 use std::env;
 use traits::CommandHandlerData;
 
