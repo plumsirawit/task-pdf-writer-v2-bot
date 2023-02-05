@@ -33,7 +33,10 @@ impl<'a> ConfigHandler<'a> {
             CommandDataOptionValue::String(reldir) => reldir,
             _ => Err(MyError::new("(probably your fault): invalid reldir"))?,
         };
-        let privkey = options[2].resolved.as_ref();
+        let privkey = match options.get(2) {
+            Some(s) => s.resolved.as_ref(),
+            None => None,
+        };
         let guild_id = match self.data.command.guild_id {
             Some(s) => s,
             None => Err(MyError::new("guild_id not found"))?,

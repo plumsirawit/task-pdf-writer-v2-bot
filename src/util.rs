@@ -9,6 +9,8 @@ use uuid::Uuid;
 use crate::traits::{MyError, TaskPdfWriterBotError};
 use sqlx::FromRow;
 
+use tracing::info;
+
 #[derive(FromRow)]
 struct Contest {
     pub guild_id: String,
@@ -67,46 +69,54 @@ pub async fn prep_repo(
         Err(_) => false,
     };
     let pb = env::temp_dir().join(guild_id.to_string() + Uuid::new_v4().to_string().as_str());
+    let privkey_path: &Path = pb.as_path();
+    if let Some(k) = key.clone() {
+        if let Ok(()) = fs::write(&privkey_path, &k){
+            info!("Written privkey");
+        } else {
+            fs::remove_file(&privkey_path)?;
+            Err(MyError::new("cannot write to privkey_path"))?
+        }
+    }
+    info!(
+        "[DEBUG OUTER privkey] {}",
+        std::str::from_utf8(fs::read(&privkey_path).unwrap().as_slice()).unwrap()
+    );
     let repo: Repository = match exists {
         true => Repository::open(repo_path)?,
         false => {
-            if let Some(k) = key {
+            if let Some(_k) = key {
                 // https://github.com/rust-lang/git2-rs/issues/394
 
                 //---------------------------------
                 // build up auth credentials via fetch options:
                 let mut cb = git2::RemoteCallbacks::new();
-
-                let privkey_path: &Path = pb.as_path();
-                if let Ok(()) = fs::write(&privkey_path, &k) {
-                    println!(
+                info!("INNER");
+                cb.credentials(|_, username_from_url, _cred| {
+                    // trying https://github.com/rust-lang/git2-rs/issues/329
+                    info!(
                         "[DEBUG privkey] {}",
-                        std::str::from_utf8(fs::read(&privkey_path)?.as_slice()).unwrap()
+                        std::str::from_utf8(fs::read(&privkey_path).unwrap().as_slice()).unwrap()
                     );
-                    cb.credentials(|_, username_from_url, _cred| {
-                        // trying https://github.com/rust-lang/git2-rs/issues/329
-                        let user = username_from_url.unwrap_or("git");
-                        if _cred.contains(git2::CredentialType::USERNAME) {
-                            return git2::Cred::username(user);
-                        }
-                        let credentials = git2::Cred::ssh_key(user, None, privkey_path, None)?;
-                        Ok(credentials)
-                    });
-                    let mut fo = git2::FetchOptions::new();
-                    fo.remote_callbacks(cb);
+                    let user = username_from_url.unwrap_or("git");
+                    if _cred.contains(git2::CredentialType::USERNAME) {
+                        return git2::Cred::username(user);
+                    }
+                    let credentials = git2::Cred::ssh_key(user, None, privkey_path, None)?;
+                    Ok(credentials)
+                });
+                let mut fo = git2::FetchOptions::new();
+                fo.remote_callbacks(cb);
 
-                    //---------------------------
-                    // Build builder
-                    let mut builder = git2::build::RepoBuilder::new();
-                    builder.fetch_options(fo);
+                //---------------------------
+                // Build builder
+                let mut builder = git2::build::RepoBuilder::new();
+                builder.fetch_options(fo);
 
-                    //-------------------
-                    // clone
-                    builder.clone(url.as_str(), &repo_path)?
-                } else {
-                    fs::remove_file(&privkey_path)?;
-                    Err(MyError::new("cannot write to privkey_path"))?
-                }
+                println!("[DEBUG IN2] {} {}", url.as_str(), (&repo_path).to_str().unwrap());
+                //-------------------
+                // clone
+                builder.clone(url.as_str(), &repo_path)?
             } else {
                 match Repository::clone(url.as_str(), repo_path) {
                     Ok(r) => r,
