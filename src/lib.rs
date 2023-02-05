@@ -109,6 +109,7 @@ impl EventHandler for Handler {
 
 #[shuttle_service::main]
 async fn serenity(
+    #[shuttle_shared_db::Postgres] database: PgPool,
     #[shuttle_secrets::Secrets] secret_store: SecretStore
 ) -> shuttle_service::ShuttleSerenity {
     dotenv().ok();
@@ -119,11 +120,11 @@ async fn serenity(
 
     // Login with a bot token from the environment
     let token = env::var("DISCORD_TOKEN").expect("token");
-    let database = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .connect("postgres://postgres:welcome@localhost/postgres")
-        .await
-        .unwrap();
+    // let database = sqlx::postgres::PgPoolOptions::new()
+    //     .max_connections(5)
+    //     .connect("postgres://postgres:welcome@localhost/postgres")
+    //     .await
+    //     .unwrap();
     // let database = sqlx::sqlite::SqlitePoolOptions::new()
     //     .max_connections(5)
     //     .connect_with(
