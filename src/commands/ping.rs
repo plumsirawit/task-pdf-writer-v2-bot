@@ -1,4 +1,6 @@
-use crate::traits::{immediate_handle, CommandHandle, CommandHandlerData, TaskPdfWriterBotError};
+use crate::traits::{
+    immediate_handle, CommandHandle, CommandHandlerData, MyError, TaskPdfWriterBotError,
+};
 use crate::util::{get_metadata, get_name};
 
 use serenity::async_trait;
@@ -33,7 +35,11 @@ impl<'a> PingHandler<'a> {
                 .await?;
         }
         let name = get_name(self.data.command.channel_id, &self.data.ctx).await;
-        let mdata = get_metadata(self.data.command.guild_id.unwrap(), self.data.database).await?;
+        let guild_id = match self.data.command.guild_id {
+            Some(s) => s,
+            None => Err(MyError::new("guild_id not found"))?,
+        };
+        let mdata = get_metadata(guild_id, self.data.database).await?;
         Ok(name? + " | " + mdata.0.as_str() + " | " + mdata.1.as_str())
     }
 }

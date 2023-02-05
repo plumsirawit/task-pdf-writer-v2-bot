@@ -125,7 +125,8 @@ pub enum TaskPdfWriterBotError {
     SqlxError(sqlx::Error),
     GitError(git2::Error),
     IOError(io::Error),
-    Reqwest(reqwest::Error),
+    ReqwestError(reqwest::Error),
+    JsonError(serde_json::Error),
 }
 impl std::error::Error for TaskPdfWriterBotError {}
 impl From<MyError> for TaskPdfWriterBotError {
@@ -155,7 +156,12 @@ impl From<io::Error> for TaskPdfWriterBotError {
 }
 impl From<reqwest::Error> for TaskPdfWriterBotError {
     fn from(err: reqwest::Error) -> Self {
-        TaskPdfWriterBotError::Reqwest(err)
+        TaskPdfWriterBotError::ReqwestError(err)
+    }
+}
+impl From<serde_json::Error> for TaskPdfWriterBotError {
+    fn from(err: serde_json::Error) -> Self {
+        TaskPdfWriterBotError::JsonError(err)
     }
 }
 impl fmt::Display for TaskPdfWriterBotError {
@@ -166,7 +172,8 @@ impl fmt::Display for TaskPdfWriterBotError {
             TaskPdfWriterBotError::SqlxError(s) => s.fmt(f),
             TaskPdfWriterBotError::GitError(s) => s.fmt(f),
             TaskPdfWriterBotError::IOError(s) => s.fmt(f),
-            TaskPdfWriterBotError::Reqwest(s) => s.fmt(f),
+            TaskPdfWriterBotError::ReqwestError(s) => s.fmt(f),
+            TaskPdfWriterBotError::JsonError(s) => s.fmt(f),
         }
     }
 }

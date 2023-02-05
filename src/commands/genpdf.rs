@@ -18,8 +18,8 @@ fn retrieve_config(
 ) -> Result<serde_json::Value, TaskPdfWriterBotError> {
     let current_path = repo.path().join("..").join(reldir).join("config.json");
     println!("{}", current_path.display());
-    let json_string = fs::read_to_string(current_path).expect("file read failed");
-    return Ok(serde_json::from_str(json_string.as_str()).expect("JSON was not well-formatted"));
+    let json_string = fs::read_to_string(current_path)?;
+    Ok(serde_json::from_str(json_string.as_str())?)
 }
 
 async fn generate_pdf(
@@ -41,14 +41,23 @@ async fn generate_pdf(
         .await?
         .text()
         .await?;
-    let resp_obj: serde_json::Value =
-        serde_json::from_str(resp.as_str()).expect("JSON parse from fetch is fine");
-    let resp_obj = resp_obj.as_object().expect("the resp is an object");
-    if let serde_json::Value::String(content_base64) =
-        resp_obj.get("message").expect("message exists")
-    {
-        let decoded_content = general_purpose::STANDARD.decode(content_base64).unwrap();
-        fs::write(&outfile_path, decoded_content).unwrap();
+    let resp_obj: serde_json::Value = serde_json::from_str(resp.as_str())?;
+    let resp_obj = match resp_obj.as_object() {
+        Some(obj) => obj,
+        None => Err(MyError::new("JSON object not found"))?,
+    };
+    let message = match resp_obj.get("message") {
+        Some(m) => m,
+        None => Err(MyError::new("message doesn't exist"))?,
+    };
+    if let serde_json::Value::String(content_base64) = message {
+        let decoded_content = match general_purpose::STANDARD.decode(content_base64) {
+            Ok(s) => s,
+            Err(e) => Err(MyError::new(
+                ("[base64]".to_string() + e.to_string().as_str()).as_str(),
+            ))?,
+        };
+        fs::write(&outfile_path, decoded_content)?;
     } else {
         Err(MyError::new("message in json is not a string"))?;
     }
@@ -64,10 +73,13 @@ impl<'a> GenpdfHandler<'a> {
     }
     async fn run(&'a self) -> Result<PathBuf, TaskPdfWriterBotError> {
         let name = get_name(self.data.command.channel_id, &self.data.ctx).await?;
-        let (url, reldir) =
-            get_metadata(self.data.command.guild_id.unwrap(), self.data.database).await?;
-        let repo = prep_repo(self.data.command.guild_id.unwrap(), url).await?;
-        let config_json = retrieve_config(&repo, reldir.to_owned()).expect("JSON retreival failed");
+        let guild_id = match self.data.command.guild_id {
+            Some(g) => g,
+            None => Err(MyError::new("guild_id not found"))?,
+        };
+        let (url, reldir) = get_metadata(guild_id, self.data.database).await?;
+        let repo = prep_repo(guild_id, url).await?;
+        let config_json = retrieve_config(&repo, reldir.to_owned())?;
         let md_path = repo
             .path()
             .join("..")
@@ -76,9 +88,7 @@ impl<'a> GenpdfHandler<'a> {
         if !md_path.is_file() {
             Err(MyError::new("file not found"))?;
         }
-        let file_content = String::from_utf8_lossy(&fs::read(md_path)?)
-            .parse()
-            .unwrap();
+        let file_content = String::from_utf8_lossy(&fs::read(md_path)?).to_string();
         generate_pdf(name.clone(), file_content, config_json.clone()).await
     }
 }

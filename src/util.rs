@@ -58,7 +58,7 @@ pub async fn prep_repo(guild_id: GuildId, url: String) -> Result<Repository, git
         false => Repository::clone(url.as_str(), repo_path),
     };
     if let Ok(rep) = &repo {
-        rep.remote_set_url("origin", url.as_str()).unwrap();
+        rep.remote_set_url("origin", url.as_str())?;
         let mut remote = rep
             .find_remote("origin")
             .or_else(|_| rep.remote_anonymous("origin"))?;
@@ -105,20 +105,14 @@ pub async fn prep_repo(guild_id: GuildId, url: String) -> Result<Repository, git
 
         // in this block, we try to pull
         let our_commit = {
-            let obj = rep
-                .head()
-                .unwrap()
-                .resolve()
-                .unwrap()
-                .peel(ObjectType::Commit)?;
+            let obj = rep.head()?.resolve()?.peel(ObjectType::Commit)?;
             match obj.into_commit() {
                 Ok(c) => Ok(c),
                 _ => Err(git2::Error::from_str("commit error")),
             }
-        }
-        .unwrap();
-        let reference = rep.find_reference("FETCH_HEAD").unwrap();
-        let their_commit = reference.peel_to_commit().unwrap();
+        }?;
+        let reference = rep.find_reference("FETCH_HEAD")?;
+        let their_commit = reference.peel_to_commit()?;
         let _index = rep.merge_commits(&our_commit, &their_commit, Some(&MergeOptions::new()))?;
     }
     return repo;
