@@ -42,7 +42,7 @@ pub async fn get_metadata(
 ) -> Result<(String, String, Option<Vec<u8>>), TaskPdfWriterBotError> {
     let guild_id_string = guild_id.to_string();
     let metadata: Result<Contest, sqlx::Error> = sqlx::query_as(
-        r#"SELECT COALESCE(guild_id, 'ID not found') AS "guild_id!", COALESCE(git_remote_url, 'URL not found') AS "git_remote_url!", COALESCE(contest_rel_path, 'relpath not found') AS "contest_rel_path!", private_key AS "private_key?" FROM contests WHERE guild_id = $1"#).bind(guild_id_string)
+        r#"SELECT COALESCE(guild_id, 'ID not found') AS "guild_id", COALESCE(git_remote_url, 'URL not found') AS "git_remote_url", COALESCE(contest_rel_path, 'relpath not found') AS "contest_rel_path", private_key FROM contests WHERE guild_id = $1"#).bind(guild_id_string)
     .fetch_one(database)
     .await;
     return match metadata {
