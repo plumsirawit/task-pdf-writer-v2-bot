@@ -1,19 +1,21 @@
+use crate::traits::{CommandHandle, CommandHandlerData, MyError, TaskPdfWriterBotError};
 use crate::util::{get_metadata, get_name, prep_repo};
 
 use base64::{engine::general_purpose, Engine};
+use serenity::async_trait;
 use serenity::builder::CreateApplicationCommand;
-use serenity::model::application::interaction::application_command::ApplicationCommandInteraction;
-use serenity::prelude::Context;
+use serenity::model::prelude::interaction::InteractionResponseType;
 
 use git2::Repository;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 use std::{env, fs};
 
 fn retrieve_config(
     repo: &Repository,
     reldir: String,
-) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+) -> Result<serde_json::Value, TaskPdfWriterBotError> {
     let current_path = repo.path().join("..").join(reldir).join("config.json");
     println!("{}", current_path.display());
     let json_string = fs::read_to_string(current_path).expect("file read failed");
@@ -24,7 +26,7 @@ async fn generate_pdf(
     task_name: String,
     task_content: String,
     mut config_json: serde_json::Value,
-) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
+) -> Result<PathBuf, TaskPdfWriterBotError> {
     let mut hasher = DefaultHasher::new();
     (task_name.clone() + task_content.as_str()).hash(&mut hasher);
     let hashed_out = hasher.finish();
@@ -48,70 +50,104 @@ async fn generate_pdf(
         let decoded_content = general_purpose::STANDARD.decode(content_base64).unwrap();
         fs::write(&outfile_path, decoded_content).unwrap();
     } else {
-        return Err("message in json is not a string".into());
+        Err(MyError::new("message in json is not a string"))?;
     }
-    return Ok(outfile_path.to_str().unwrap().to_string());
-}
-pub async fn run(
-    command: &ApplicationCommandInteraction,
-    ctx: &Context,
-    database: &sqlx::SqlitePool,
-) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
-    let name = get_name(command.channel_id, &ctx)
-        .await
-        .expect("channel name");
-    let (url, reldir) = get_metadata(command.guild_id.unwrap(), database)
-        .await
-        .expect("get url and reldir");
-    let repo = prep_repo(command.guild_id.unwrap(), url)
-        .await
-        .expect("repo prepped");
-    let config_json = retrieve_config(&repo, reldir.to_owned()).expect("JSON retreival failed");
-    let md_path = repo
-        .path()
-        .join("..")
-        .join(reldir)
-        .join(name.clone() + ".md");
-    if !md_path.is_file() {
-        return Err("file not found".into());
-    }
-    let file_content = String::from_utf8_lossy(&fs::read(md_path)?)
-        .parse()
-        .unwrap();
-    generate_pdf(name.clone(), file_content, config_json.clone()).await
-    // for entry in repo
-    //     .path()
-    //     .join("..")
-    //     .join("contest")
-    //     .read_dir()
-    //     .expect("directory is read")
-    // {
-    //     if let Ok(ent) = entry {
-    //         let file_name = ent.file_name().to_str().expect("to str").to_string();
-    //         if !file_name.ends_with(".md") {
-    //             continue;
-    //         }
-    //         let file_name = file_name
-    //             .strip_suffix(".md")
-    //             .expect(".md can be stripped")
-    //             .to_string();
-    //         let file_content = String::from_utf8_lossy(&fs::read(ent.path())?)
-    //             .parse()
-    //             .expect("file read success");
-    //         file_futures.push(generate_pdf(file_name, file_content, config_json.clone()));
-    //     }
-    // }
-    // let pdf_result: Vec<String> = join_all(file_futures)
-    //     .await
-    //     .iter()
-    //     .map(|x| x.as_ref().expect("OK").clone())
-    //     .collect();
-
-    // return Ok(pdf_result);
+    Ok(outfile_path)
 }
 
-pub fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
-    command
-        .name("genpdf")
-        .description("Generates a PDF from markdown")
+pub struct GenpdfHandler<'a> {
+    data: &'a CommandHandlerData<'a>,
 }
+impl<'a> GenpdfHandler<'a> {
+    pub fn new(data: &'a CommandHandlerData<'a>) -> GenpdfHandler<'a> {
+        GenpdfHandler { data }
+    }
+    async fn run(&'a self) -> Result<PathBuf, TaskPdfWriterBotError> {
+        let name = get_name(self.data.command.channel_id, &self.data.ctx).await?;
+        let (url, reldir) =
+            get_metadata(self.data.command.guild_id.unwrap(), self.data.database).await?;
+        let repo = prep_repo(self.data.command.guild_id.unwrap(), url).await?;
+        let config_json = retrieve_config(&repo, reldir.to_owned()).expect("JSON retreival failed");
+        let md_path = repo
+            .path()
+            .join("..")
+            .join(reldir)
+            .join(name.clone() + ".md");
+        if !md_path.is_file() {
+            Err(MyError::new("file not found"))?;
+        }
+        let file_content = String::from_utf8_lossy(&fs::read(md_path)?)
+            .parse()
+            .unwrap();
+        generate_pdf(name.clone(), file_content, config_json.clone()).await
+    }
+}
+
+#[async_trait]
+impl<'a> CommandHandle<'a> for GenpdfHandler<'a> {
+    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        command
+            .name("genpdf")
+            .description("Generates a PDF from markdown")
+    }
+    async fn handle(&'a self) -> Result<(), TaskPdfWriterBotError> {
+        self.data
+            .command
+            .create_interaction_response(&self.data.ctx.http, |response| {
+                response.kind(InteractionResponseType::DeferredChannelMessageWithSource)
+            })
+            .await?;
+        match self.run().await {
+            Ok(file) => {
+                self.data
+                    .command
+                    .create_followup_message(&self.data.ctx.http, |response| {
+                        response.add_file(&file)
+                    })
+                    .await?;
+                fs::remove_file(file.to_owned())?;
+            }
+            Err(e) => {
+                self.data
+                    .command
+                    .create_followup_message(&self.data.ctx.http, |response| {
+                        response.content(e.to_string().as_str())
+                    })
+                    .await?;
+            }
+        };
+        Ok(())
+    }
+}
+
+// The following stupid comment is for use in case of generating multiple files at the same time.
+
+// for entry in repo
+//     .path()
+//     .join("..")
+//     .join("contest")
+//     .read_dir()
+//     .expect("directory is read")
+// {
+//     if let Ok(ent) = entry {
+//         let file_name = ent.file_name().to_str().expect("to str").to_string();
+//         if !file_name.ends_with(".md") {
+//             continue;
+//         }
+//         let file_name = file_name
+//             .strip_suffix(".md")
+//             .expect(".md can be stripped")
+//             .to_string();
+//         let file_content = String::from_utf8_lossy(&fs::read(ent.path())?)
+//             .parse()
+//             .expect("file read success");
+//         file_futures.push(generate_pdf(file_name, file_content, config_json.clone()));
+//     }
+// }
+// let pdf_result: Vec<String> = join_all(file_futures)
+//     .await
+//     .iter()
+//     .map(|x| x.as_ref().expect("OK").clone())
+//     .collect();
+
+// return Ok(pdf_result);

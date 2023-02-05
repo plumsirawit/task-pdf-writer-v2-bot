@@ -1,21 +1,28 @@
 mod commands;
 mod traits;
 mod util;
+use commands::config::ConfigHandler;
+use commands::ping::PingHandler;
+use commands::sendstr::SendStrHandler;
+use traits::CommandHandle;
 
 extern crate dotenv;
 
 use dotenv::dotenv;
-use std::{env, fs};
+use std::env;
+use traits::CommandHandlerData;
 
 use serenity::async_trait;
 use serenity::framework::standard::macros::{command, group};
 use serenity::framework::standard::{CommandResult, StandardFramework};
-use serenity::model::application::interaction::{Interaction, InteractionResponseType};
+use serenity::model::application::interaction::Interaction;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::model::id::GuildId;
 use serenity::model::prelude::ChannelId;
 use serenity::prelude::*;
+
+use crate::commands::genpdf::GenpdfHandler;
 
 #[group]
 #[commands(ping)]
@@ -30,84 +37,15 @@ impl EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(command) = interaction {
             println!("Received command interaction: {:#?}", command);
-
-            if command.data.name.as_str() == "genpdf" || command.data.name.as_str() == "config" {
-                if let Err(why) = command
-                    .create_interaction_response(&ctx.http, |response| {
-                        response.kind(InteractionResponseType::DeferredChannelMessageWithSource)
-                    })
-                    .await
-                {
-                    println!("Cannot respond to slash command: {}", why);
-                }
-                match command.data.name.as_str() {
-                    "genpdf" => {
-                        let file = match commands::genpdf::run(&command, &ctx, &self.database).await
-                        {
-                            Ok(f) => f,
-                            Err(e) => {
-                                if let Err(why) = command
-                                    .create_followup_message(&ctx.http, |response| {
-                                        response.content(
-                                            "[ERROR] ".to_string() + e.to_string().as_str(),
-                                        )
-                                    })
-                                    .await
-                                {
-                                    println!("Cannot respond to slash command: {}", why);
-                                }
-                                return;
-                            }
-                        };
-
-                        if let Err(why) = command
-                            .create_followup_message(&ctx.http, |response| {
-                                response.add_file(file.as_str())
-                            })
-                            .await
-                        {
-                            println!("Cannot respond to slash command: {}", why);
-                        }
-                        if let Err(why) = fs::remove_file(file.to_owned()) {
-                            println!("Cannot remove file {} because of {}", file.to_owned(), why);
-                        }
-                    }
-                    "config" => {
-                        let retst = commands::config::run(&command, &ctx, &self.database).await;
-                        if let Err(why) = command
-                            .create_followup_message(&ctx.http, |response| response.content(retst))
-                            .await
-                        {
-                            println!("Cannot respond to slash command: {}", why);
-                        }
-                    }
-                    _ => {
-                        if let Err(why) = command
-                            .create_followup_message(&ctx.http, |response| {
-                                response.content("not implemented")
-                            })
-                            .await
-                        {
-                            println!("Cannot respond to slash command: {}", why);
-                        }
-                    }
-                };
-            } else {
-                let content = match command.data.name.as_str() {
-                    "ping" => commands::ping::run(&command, &ctx, &self.database).await,
-                    _ => "not implemented :(".to_string(),
-                };
-
-                if let Err(why) = command
-                    .create_interaction_response(&ctx.http, |response| {
-                        response
-                            .kind(InteractionResponseType::ChannelMessageWithSource)
-                            .interaction_response_data(|message| message.content(content))
-                    })
-                    .await
-                {
-                    println!("Cannot respond to slash command: {}", why);
-                }
+            let data = CommandHandlerData::new(&command, &ctx, &self.database);
+            let not_implemented = SendStrHandler::new(&data, "not implemented :(".to_string());
+            if let Err(why) = match command.data.name.as_str() {
+                "genpdf" => GenpdfHandler::new(&data).handle().await,
+                "config" => ConfigHandler::new(&data).handle().await,
+                "ping" => PingHandler::new(&data).handle().await,
+                _ => not_implemented.handle().await,
+            } {
+                println!("Cannot respond to slash command: {}", why);
             }
         }
     }
@@ -117,15 +55,24 @@ impl EventHandler for Handler {
             println!("{} is connected!", guild.id);
             let channel_id = get_channel_id(guild.id, &ctx).await;
             if channel_id.is_none() {
-                println!("{} has no task-pdf-writer-bot channel, skipping.", guild.id);
+                println!(
+                    "{} has no task-pdf-writer-bot-v2 channel, skipping.",
+                    guild.id
+                );
                 continue;
             }
 
             let commands = GuildId::set_application_commands(&guild.id, &ctx.http, |commands| {
                 commands
-                    .create_application_command(|command| commands::ping::register(command))
-                    .create_application_command(|command| commands::genpdf::register(command))
-                    .create_application_command(|command| commands::config::register(command))
+                    .create_application_command(|command| {
+                        commands::ping::PingHandler::register(command)
+                    })
+                    .create_application_command(|command| {
+                        commands::genpdf::GenpdfHandler::register(command)
+                    })
+                    .create_application_command(|command| {
+                        commands::config::ConfigHandler::register(command)
+                    })
             })
             .await;
 
@@ -133,11 +80,11 @@ impl EventHandler for Handler {
                 "I now have the following guild slash commands on guild {}: {:#?}",
                 guild.id, commands
             );
-            // if !channel_names.contains(&"task-pdf-writer-bot".to_string()) {
+            // if !channel_names.contains(&"task-pdf-writer-bot-v2".to_string()) {
             //     guild
             //         .id
             //         .create_channel(&ctx.http, |c| {
-            //             c.name("task-pdf-writer-bot").kind(ChannelType::Text)
+            //             c.name("task-pdf-writer-bot-v2").kind(ChannelType::Text)
             //         })
             //         .await
             //         .unwrap();
@@ -207,7 +154,7 @@ async fn get_channel_id(guild: GuildId, ctx: &Context) -> Option<ChannelId> {
     let channels = guild.channels(&ctx.http).await.unwrap();
     let bot_channel_id = channels
         .into_iter()
-        .find(|(_k, v)| v.is_text_based() && v.name == "task-pdf-writer-bot".to_string());
+        .find(|(_k, v)| v.is_text_based() && v.name == "task-pdf-writer-v2-bot".to_string());
     if bot_channel_id.is_none() {
         return None;
     }

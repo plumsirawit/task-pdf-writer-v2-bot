@@ -1,42 +1,55 @@
+use crate::traits::{immediate_handle, CommandHandle, CommandHandlerData, TaskPdfWriterBotError};
 use crate::util::{get_metadata, get_name};
 
+use serenity::async_trait;
 use serenity::builder::CreateApplicationCommand;
-use serenity::model::application::interaction::application_command::ApplicationCommandInteraction;
 use serenity::model::prelude::{Channel, ChannelType};
-use serenity::prelude::Context;
 
-pub async fn run(
-    command: &ApplicationCommandInteraction,
-    ctx: &Context,
-    database: &sqlx::SqlitePool,
-) -> String {
-    let channel_object = command.channel_id.to_channel(&ctx).await.unwrap();
-    let kind = match channel_object {
-        Channel::Guild(channel) => channel.kind,
-        Channel::Category(channel) => channel.kind,
-        Channel::Private(channel) => channel.kind,
-        _ => ChannelType::Unknown,
-    };
-    if kind == ChannelType::PublicThread || kind == ChannelType::PrivateThread {
-        command.channel_id.join_thread(&ctx.http).await.unwrap();
+pub struct PingHandler<'a> {
+    data: &'a CommandHandlerData<'a>,
+}
+impl<'a> PingHandler<'a> {
+    pub fn new(data: &'a CommandHandlerData<'a>) -> PingHandler<'a> {
+        PingHandler { data }
     }
-    let name = get_name(command.channel_id, &ctx).await;
-    let mdata = get_metadata(command.guild_id.unwrap(), database).await;
-    return {
-        (match name {
-            Err(e) => e.to_string(),
-            Ok(s) => s,
-        }) + " | "
-            + (match mdata {
-                Err(e) => e.to_string(),
-                Ok((s, t)) => s + ", " + t.as_str(),
-            })
-            .as_str()
-    };
+    async fn run(&'a self) -> Result<String, TaskPdfWriterBotError> {
+        let channel_object = self
+            .data
+            .command
+            .channel_id
+            .to_channel(&self.data.ctx)
+            .await?;
+        let kind = match channel_object {
+            Channel::Guild(channel) => channel.kind,
+            Channel::Category(channel) => channel.kind,
+            Channel::Private(channel) => channel.kind,
+            _ => ChannelType::Unknown,
+        };
+        if kind == ChannelType::PublicThread || kind == ChannelType::PrivateThread {
+            self.data
+                .command
+                .channel_id
+                .join_thread(&self.data.ctx.http)
+                .await?;
+        }
+        let name = get_name(self.data.command.channel_id, &self.data.ctx).await;
+        let mdata = get_metadata(self.data.command.guild_id.unwrap(), self.data.database).await?;
+        Ok(name? + " | " + mdata.0.as_str() + " | " + mdata.1.as_str())
+    }
 }
 
-pub fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
-    command
-        .name("ping")
-        .description("A ping command, for debug-related purposes only.")
+#[async_trait]
+impl<'a> CommandHandle<'a> for PingHandler<'a> {
+    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        command
+            .name("ping")
+            .description("A ping command, for debug-related purposes only.")
+    }
+    async fn handle(&'a self) -> Result<(), TaskPdfWriterBotError> {
+        let content = match self.run().await {
+            Ok(s) => s,
+            Err(e) => e.to_string(),
+        };
+        immediate_handle(self.data, content).await
+    }
 }

@@ -4,18 +4,23 @@ use git2::{AutotagOption, FetchOptions, MergeOptions, ObjectType, Repository};
 use serenity::model::prelude::{Channel, ChannelId, GuildId};
 use serenity::prelude::Context;
 
-pub async fn get_name(channel_id: ChannelId, ctx: &Context) -> Result<String, serenity::Error> {
+use crate::traits::{MyError, TaskPdfWriterBotError};
+
+pub async fn get_name(
+    channel_id: ChannelId,
+    ctx: &Context,
+) -> Result<String, TaskPdfWriterBotError> {
     // Note: I don't know why, but calling
     // `command.channel_id.name(&ctx).await`
     // gives `None`.
     let channel_object = channel_id.to_channel(&ctx).await;
     match channel_object {
-        Err(st) => Err(st),
+        Err(st) => Err(st)?,
         Ok(res) => match res {
             Channel::Guild(channel) => Ok(channel.name().to_string()),
             Channel::Category(category) => Ok(category.name().to_string()),
             Channel::Private(channel) => Ok(channel.name()),
-            _ => Err(serenity::Error::Other("Not found")),
+            _ => Err(serenity::Error::Other("channel type not found"))?,
         },
     }
 }
@@ -23,16 +28,20 @@ pub async fn get_name(channel_id: ChannelId, ctx: &Context) -> Result<String, se
 pub async fn get_metadata(
     guild_id: GuildId,
     database: &sqlx::SqlitePool,
-) -> Result<(String, String), sqlx::Error> {
+) -> Result<(String, String), TaskPdfWriterBotError> {
     let guild_id_string = guild_id.to_string();
     let metadata = sqlx::query!(
-        "SELECT git_remote_url, contest_rel_path FROM contests WHERE guild_id = ?",
+        r#"SELECT IFNULL(git_remote_url, 'URL not found') AS "git_remote_url!: String", IFNULL(contest_rel_path, 'relpath not found') AS "contest_rel_path!: String" FROM contests WHERE guild_id = ?"#,
         guild_id_string
     )
-    .fetch_one(database) // < Where the command will be executed
+    .fetch_one(database)
     .await;
     return match metadata {
-        Err(st) => Err(st),
+        Err(st) => Err(MyError::new(
+            ("(probably your fault if you haven't config the bot) ".to_string()
+                + st.to_string().as_str())
+            .as_str(),
+        ))?,
         Ok(res) => Ok((res.git_remote_url, res.contest_rel_path)),
     };
 }
