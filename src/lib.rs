@@ -29,7 +29,7 @@ use crate::commands::genpdf::GenpdfHandler;
 struct General;
 
 struct Handler {
-    database: sqlx::SqlitePool,
+    database: sqlx::PgPool,
 }
 
 #[async_trait]
@@ -119,15 +119,20 @@ async fn serenity(
 
     // Login with a bot token from the environment
     let token = env::var("DISCORD_TOKEN").expect("token");
-    let database = sqlx::sqlite::SqlitePoolOptions::new()
+    let database = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
-        .connect_with(
-            sqlx::sqlite::SqliteConnectOptions::new()
-                .filename("database.sqlite")
-                .create_if_missing(true),
-        )
+        .connect("postgres://postgres:welcome@localhost/postgres")
         .await
-        .expect("Couldn't connect to database");
+        .unwrap();
+    // let database = sqlx::sqlite::SqlitePoolOptions::new()
+    //     .max_connections(5)
+    //     .connect_with(
+    //         sqlx::sqlite::SqliteConnectOptions::new()
+    //             .filename("database.sqlite")
+    //             .create_if_missing(true),
+    //     )
+    //     .await
+    //     .expect("Couldn't connect to database");
     sqlx::migrate!("./migrations")
         .run(&database)
         .await

@@ -9,7 +9,7 @@ use serenity::prelude::*;
 pub struct CommandHandlerData<'a> {
     pub(super) command: &'a ApplicationCommandInteraction,
     pub(super) ctx: &'a Context,
-    pub(super) database: &'a sqlx::SqlitePool,
+    pub(super) database: &'a sqlx::PgPool,
 }
 
 #[async_trait]
@@ -22,7 +22,7 @@ impl<'a> CommandHandlerData<'a> {
     pub fn new(
         command: &'a ApplicationCommandInteraction,
         ctx: &'a Context,
-        database: &'a sqlx::SqlitePool,
+        database: &'a sqlx::PgPool,
     ) -> CommandHandlerData<'a> {
         CommandHandlerData {
             command,
