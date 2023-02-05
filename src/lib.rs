@@ -1,3 +1,5 @@
+use anyhow::Context as _;
+
 mod commands;
 mod traits;
 mod util;
@@ -23,6 +25,11 @@ use serenity::model::prelude::ChannelId;
 use serenity::prelude::*;
 
 use crate::commands::genpdf::GenpdfHandler;
+
+use shuttle_secrets::SecretStore;
+use sqlx::{Executor, PgPool};
+
+use tracing::{error, info};
 
 #[group]
 #[commands(ping)]
@@ -113,6 +120,7 @@ async fn serenity(
     #[shuttle_secrets::Secrets] secret_store: SecretStore
 ) -> shuttle_service::ShuttleSerenity {
     dotenv().ok();
+    info!("[DEBUG] {}", env::var("DISCORD_TOKEN").unwrap());
 
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("~")) // set the bot's prefix to "~"
@@ -134,10 +142,15 @@ async fn serenity(
     //     )
     //     .await
     //     .expect("Couldn't connect to database");
-    sqlx::migrate!("./migrations")
-        .run(&database)
+
+    // Run the schema migration
+    database.execute(include_str!("../schema.sql"))
         .await
-        .expect("Couldn't run database migrations");
+        .context("failed to run migrations")?;
+    // sqlx::migrate!("./migrations")
+    //     .run(&database)
+    //     .await
+    //     .expect("Couldn't run database migrations");
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
     let client = Client::builder(token, intents)
         .event_handler(Handler { database })

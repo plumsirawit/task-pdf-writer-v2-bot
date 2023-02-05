@@ -48,22 +48,21 @@ impl<'a> ConfigHandler<'a> {
                     ))?,
                 };
                 let downloaded_attachment = pk.download().await?;
-                sqlx::query!(
-                    "REPLACE INTO contests (guild_id, git_remote_url, contest_rel_path, private_key) VALUES ($1, $2, $3, $4)",
-                    guild_id,
-                    url,
-                    reldir,
-                    downloaded_attachment
-                ).execute(self.data.database) // < Where the command will be executed
+                sqlx::query(
+                    "INSERT INTO contests (guild_id, git_remote_url, contest_rel_path, private_key) VALUES ($1, $2, $3, $4) ON CONFLICT (guild_id) DO UPDATE SET git_remote_url = EXCLUDED.git_remote_url, contest_rel_path = EXCLUDED.contest_rel_path, private_key = EXCLUDED.private_key")
+                .bind(&guild_id)
+                .bind(&url)
+                .bind(&reldir)
+                .bind(&downloaded_attachment)
+                .execute(self.data.database) // < Where the command will be executed
                 .await?;
             }
             None => {
-                sqlx::query!(
-                    "REPLACE INTO contests (guild_id, git_remote_url, contest_rel_path) VALUES ($1, $2, $3)",
-                    guild_id,
-                    url,
-                    reldir
-                )
+                sqlx::query(
+                    "INSERT INTO contests (guild_id, git_remote_url, contest_rel_path) VALUES ($1, $2, $3) ON CONFLICT (guild_id) DO UPDATE SET git_remote_url = EXCLUDED.git_remote_url, contest_rel_path = EXCLUDED.contest_rel_path")
+                    .bind(&guild_id)
+                    .bind(&url)
+                    .bind(&reldir)
                 .execute(self.data.database) // < Where the command will be executed
                 .await?;
             }
