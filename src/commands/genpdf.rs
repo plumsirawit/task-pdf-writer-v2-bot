@@ -77,8 +77,8 @@ impl<'a> GenpdfHandler<'a> {
             Some(g) => g,
             None => Err(MyError::new("guild_id not found"))?,
         };
-        let (url, reldir) = get_metadata(guild_id, self.data.database).await?;
-        let repo = prep_repo(guild_id, url).await?;
+        let (url, reldir, privkey) = get_metadata(guild_id, self.data.database).await?;
+        let repo = prep_repo(guild_id, url, privkey).await?;
         let config_json = retrieve_config(&repo, reldir.to_owned())?;
         let md_path = repo
             .path()

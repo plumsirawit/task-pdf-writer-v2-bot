@@ -1,8 +1,10 @@
-use std::env;
+use std::path::Path;
+use std::{env, fs};
 
 use git2::{AutotagOption, FetchOptions, MergeOptions, ObjectType, Repository};
 use serenity::model::prelude::{Channel, ChannelId, GuildId};
 use serenity::prelude::Context;
+use uuid::Uuid;
 
 use crate::traits::{MyError, TaskPdfWriterBotError};
 
@@ -28,10 +30,10 @@ pub async fn get_name(
 pub async fn get_metadata(
     guild_id: GuildId,
     database: &sqlx::SqlitePool,
-) -> Result<(String, String), TaskPdfWriterBotError> {
+) -> Result<(String, String, Option<Vec<u8>>), TaskPdfWriterBotError> {
     let guild_id_string = guild_id.to_string();
     let metadata = sqlx::query!(
-        r#"SELECT IFNULL(git_remote_url, 'URL not found') AS "git_remote_url!: String", IFNULL(contest_rel_path, 'relpath not found') AS "contest_rel_path!: String" FROM contests WHERE guild_id = ?"#,
+        r#"SELECT IFNULL(git_remote_url, 'URL not found') AS "git_remote_url!: String", IFNULL(contest_rel_path, 'relpath not found') AS "contest_rel_path!: String", private_key AS "private_key?: Vec<u8>" FROM contests WHERE guild_id = ?"#,
         guild_id_string
     )
     .fetch_one(database)
@@ -42,26 +44,74 @@ pub async fn get_metadata(
                 + st.to_string().as_str())
             .as_str(),
         ))?,
-        Ok(res) => Ok((res.git_remote_url, res.contest_rel_path)),
+        Ok(res) => Ok((res.git_remote_url, res.contest_rel_path, res.private_key)),
     };
 }
 
-pub async fn prep_repo(guild_id: GuildId, url: String) -> Result<Repository, git2::Error> {
+pub async fn prep_repo(
+    guild_id: GuildId,
+    url: String,
+    key: Option<Vec<u8>>,
+) -> Result<Repository, TaskPdfWriterBotError> {
     let repo_path = env::temp_dir().join(guild_id.to_string()).to_path_buf();
     println!("[DEBUG] {:#?}", repo_path.to_str());
     let exists = match repo_path.try_exists() {
         Ok(b) => b,
         Err(_) => false,
     };
-    let repo = match exists {
-        true => Repository::open(repo_path),
-        false => Repository::clone(url.as_str(), repo_path),
+    let pb = env::temp_dir().join(guild_id.to_string() + Uuid::new_v4().to_string().as_str());
+    let repo: Repository = match exists {
+        true => Repository::open(repo_path)?,
+        false => {
+            if let Some(k) = key {
+                // https://github.com/rust-lang/git2-rs/issues/394
+
+                //---------------------------------
+                // build up auth credentials via fetch options:
+                let mut cb = git2::RemoteCallbacks::new();
+
+                let privkey_path: &Path = pb.as_path();
+                if let Ok(()) = fs::write(&privkey_path, &k) {
+                    println!(
+                        "[DEBUG privkey] {}",
+                        std::str::from_utf8(fs::read(&privkey_path)?.as_slice()).unwrap()
+                    );
+                    cb.credentials(|_, _, _| {
+                        let credentials = git2::Cred::ssh_key("git", None, privkey_path, None)?;
+                        Ok(credentials)
+                    });
+                    let mut fo = git2::FetchOptions::new();
+                    fo.remote_callbacks(cb);
+
+                    //---------------------------
+                    // Build builder
+                    let mut builder = git2::build::RepoBuilder::new();
+                    builder.fetch_options(fo);
+
+                    //-------------------
+                    // clone
+                    builder.clone(url.as_str(), &repo_path)?
+                } else {
+                    fs::remove_file(&privkey_path)?;
+                    Err(MyError::new("cannot write to privkey_path"))?
+                }
+            } else {
+                match Repository::clone(url.as_str(), repo_path) {
+                    Ok(r) => r,
+                    Err(e) => Err(MyError::new(
+                        ("(probably your fault if the repo is private and you haven't set the private key) ".to_string()
+                            + e.to_string().as_str())
+                        .as_str()))?
+                }
+            }
+        }
     };
-    if let Ok(rep) = &repo {
-        rep.remote_set_url("origin", url.as_str())?;
-        let mut remote = rep
+    // need to make sure the borrow ends before returning
+    {
+        repo.remote_set_url("origin", url.as_str())?;
+        let mut remote = repo
             .find_remote("origin")
-            .or_else(|_| rep.remote_anonymous("origin"))?;
+            .or_else(|_| repo.remote_anonymous("origin"))?;
 
         // https://github.com/rust-lang/git2-rs/blob/master/examples/fetch.rs
 
@@ -105,15 +155,15 @@ pub async fn prep_repo(guild_id: GuildId, url: String) -> Result<Repository, git
 
         // in this block, we try to pull
         let our_commit = {
-            let obj = rep.head()?.resolve()?.peel(ObjectType::Commit)?;
+            let obj = repo.head()?.resolve()?.peel(ObjectType::Commit)?;
             match obj.into_commit() {
                 Ok(c) => Ok(c),
                 _ => Err(git2::Error::from_str("commit error")),
             }
         }?;
-        let reference = rep.find_reference("FETCH_HEAD")?;
+        let reference = repo.find_reference("FETCH_HEAD")?;
         let their_commit = reference.peel_to_commit()?;
-        let _index = rep.merge_commits(&our_commit, &their_commit, Some(&MergeOptions::new()))?;
+        let _index = repo.merge_commits(&our_commit, &their_commit, Some(&MergeOptions::new()))?;
     }
-    return repo;
+    Ok(repo)
 }

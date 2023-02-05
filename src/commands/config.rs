@@ -33,19 +33,41 @@ impl<'a> ConfigHandler<'a> {
             CommandDataOptionValue::String(reldir) => reldir,
             _ => Err(MyError::new("(probably your fault): invalid reldir"))?,
         };
+        let privkey = options[2].resolved.as_ref();
         let guild_id = match self.data.command.guild_id {
             Some(s) => s,
             None => Err(MyError::new("guild_id not found"))?,
         }
         .to_string();
-        sqlx::query!(
-            "REPLACE INTO contests (guild_id, git_remote_url, contest_rel_path) VALUES (?, ?, ?)",
-            guild_id,
-            url,
-            reldir
-        )
-        .execute(self.data.database) // < Where the command will be executed
-        .await?;
+        match privkey {
+            Some(privkey_value) => {
+                let pk = match privkey_value {
+                    CommandDataOptionValue::Attachment(pk) => pk,
+                    _ => Err(MyError::new(
+                        "(probably your fault): private key is not an attachment",
+                    ))?,
+                };
+                let downloaded_attachment = pk.download().await?;
+                sqlx::query!(
+                    "REPLACE INTO contests (guild_id, git_remote_url, contest_rel_path, private_key) VALUES (?, ?, ?, ?)",
+                    guild_id,
+                    url,
+                    reldir,
+                    downloaded_attachment
+                ).execute(self.data.database) // < Where the command will be executed
+                .await?;
+            }
+            None => {
+                sqlx::query!(
+                    "REPLACE INTO contests (guild_id, git_remote_url, contest_rel_path) VALUES (?, ?, ?)",
+                    guild_id,
+                    url,
+                    reldir
+                )
+                .execute(self.data.database) // < Where the command will be executed
+                .await?;
+            }
+        }
         let repo_path = env::temp_dir().join(guild_id.to_string()).to_path_buf();
         if repo_path.is_dir() {
             fs::remove_dir_all(repo_path)?;
@@ -73,6 +95,13 @@ impl<'a> CommandHandle<'a> for ConfigHandler<'a> {
                     .description("Relative path to contest directory")
                     .kind(CommandOptionType::String)
                     .required(true)
+            })
+            .create_option(|option| {
+                option
+                    .name("privkey")
+                    .description("Private key for git repository")
+                    .kind(CommandOptionType::Attachment)
+                    .required(false)
             })
     }
     async fn handle(&'a self) -> Result<(), TaskPdfWriterBotError> {
