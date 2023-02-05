@@ -29,11 +29,11 @@ pub async fn get_name(
 
 pub async fn get_metadata(
     guild_id: GuildId,
-    database: &sqlx::SqlitePool,
+    database: &sqlx::PgPool,
 ) -> Result<(String, String, Option<Vec<u8>>), TaskPdfWriterBotError> {
     let guild_id_string = guild_id.to_string();
     let metadata = sqlx::query!(
-        r#"SELECT IFNULL(git_remote_url, 'URL not found') AS "git_remote_url!: String", IFNULL(contest_rel_path, 'relpath not found') AS "contest_rel_path!: String", private_key AS "private_key?: Vec<u8>" FROM contests WHERE guild_id = ?"#,
+        r#"SELECT IFNULL(git_remote_url, 'URL not found') AS "git_remote_url!: String", IFNULL(contest_rel_path, 'relpath not found') AS "contest_rel_path!: String", private_key AS "private_key?: Vec<u8>" FROM contests WHERE guild_id = $1"#,
         guild_id_string
     )
     .fetch_one(database)

@@ -49,7 +49,7 @@ impl<'a> ConfigHandler<'a> {
                 };
                 let downloaded_attachment = pk.download().await?;
                 sqlx::query!(
-                    "REPLACE INTO contests (guild_id, git_remote_url, contest_rel_path, private_key) VALUES (?, ?, ?, ?)",
+                    "REPLACE INTO contests (guild_id, git_remote_url, contest_rel_path, private_key) VALUES ($1, $2, $3, $4)",
                     guild_id,
                     url,
                     reldir,
@@ -59,7 +59,7 @@ impl<'a> ConfigHandler<'a> {
             }
             None => {
                 sqlx::query!(
-                    "REPLACE INTO contests (guild_id, git_remote_url, contest_rel_path) VALUES (?, ?, ?)",
+                    "REPLACE INTO contests (guild_id, git_remote_url, contest_rel_path) VALUES ($1, $2, $3)",
                     guild_id,
                     url,
                     reldir
