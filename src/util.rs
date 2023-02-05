@@ -76,8 +76,13 @@ pub async fn prep_repo(
                         "[DEBUG privkey] {}",
                         std::str::from_utf8(fs::read(&privkey_path)?.as_slice()).unwrap()
                     );
-                    cb.credentials(|_, _, _| {
-                        let credentials = git2::Cred::ssh_key("git", None, privkey_path, None)?;
+                    cb.credentials(|_, username_from_url, _cred| {
+                        // trying https://github.com/rust-lang/git2-rs/issues/329
+                        let user = username_from_url.unwrap_or("git");
+                        if _cred.contains(git2::CredentialType::USERNAME) {
+                            return git2::Cred::username(user);
+                        }
+                        let credentials = git2::Cred::ssh_key(user, None, privkey_path, None)?;
                         Ok(credentials)
                     });
                     let mut fo = git2::FetchOptions::new();
