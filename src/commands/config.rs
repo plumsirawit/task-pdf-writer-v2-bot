@@ -70,10 +70,6 @@ impl<'a> ConfigHandler<'a> {
                 .await?;
             }
         }
-        let repo_path = env::temp_dir().join(guild_id.to_string()).to_path_buf();
-        if repo_path.is_dir() {
-            fs::remove_dir_all(repo_path)?;
-        }
         Ok("OK, the URL is ".to_string() + url + " and the reldir is " + reldir)
     }
 }
