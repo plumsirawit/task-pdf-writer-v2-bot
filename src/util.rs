@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io::Write;
+use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
 use std::{env, fs};
 
@@ -71,12 +74,14 @@ pub async fn prep_repo(
     let pb = env::temp_dir().join(guild_id.to_string() + Uuid::new_v4().to_string().as_str());
     let privkey_path: &Path = pb.as_path();
     if let Some(k) = key.clone() {
-        if let Ok(()) = fs::write(&privkey_path, &k){
-            info!("Written privkey");
-        } else {
-            fs::remove_file(&privkey_path)?;
-            Err(MyError::new("cannot write to privkey_path"))?
-        }
+        let mut buffer = File::create(&privkey_path)?;
+        buffer.write_all(&k)?;
+        let mut permissions = buffer.metadata()?.permissions();
+        permissions.set_mode(0o600);
+        assert_eq!(permissions.mode(), 0o600);
+        info!("[DEBUG] permissions set!");
+        // fs::remove_file(&privkey_path)?;
+        // Err(MyError::new("cannot write to privkey_path"))?
     }
     info!(
         "[DEBUG OUTER privkey] {}",
@@ -99,11 +104,11 @@ pub async fn prep_repo(
                         std::str::from_utf8(fs::read(&privkey_path).unwrap().as_slice()).unwrap()
                     );
                     let user = username_from_url.unwrap_or("git");
+                    info!("[DEBUG user] {}", user);
                     if _cred.contains(git2::CredentialType::USERNAME) {
                         return git2::Cred::username(user);
                     }
-                    let credentials = git2::Cred::ssh_key(user, None, privkey_path, None)?;
-                    Ok(credentials)
+                    git2::Cred::ssh_key(user, None, privkey_path, None)
                 });
                 let mut fo = git2::FetchOptions::new();
                 fo.remote_callbacks(cb);
@@ -113,7 +118,11 @@ pub async fn prep_repo(
                 let mut builder = git2::build::RepoBuilder::new();
                 builder.fetch_options(fo);
 
-                println!("[DEBUG IN2] {} {}", url.as_str(), (&repo_path).to_str().unwrap());
+                println!(
+                    "[DEBUG IN2] {} {}",
+                    url.as_str(),
+                    (&repo_path).to_str().unwrap()
+                );
                 //-------------------
                 // clone
                 builder.clone(url.as_str(), &repo_path)?
