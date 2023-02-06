@@ -121,7 +121,7 @@ impl<'a> CommandHandle<'a> for GenpdfHandler<'a> {
                 self.data
                     .command
                     .create_followup_message(&self.data.ctx.http, |response| {
-                        response.content(e.to_string().as_str())
+                        response.content(format!("{:?}", e))
                     })
                     .await?;
             }
