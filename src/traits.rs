@@ -127,6 +127,7 @@ pub enum TaskPdfWriterBotError {
     IOError(io::Error),
     ReqwestError(reqwest::Error),
     JsonError(serde_json::Error),
+    OpenSSHError(openssh::Error),
 }
 impl std::error::Error for TaskPdfWriterBotError {}
 impl From<MyError> for TaskPdfWriterBotError {
@@ -164,6 +165,11 @@ impl From<serde_json::Error> for TaskPdfWriterBotError {
         TaskPdfWriterBotError::JsonError(err)
     }
 }
+impl From<openssh::Error> for TaskPdfWriterBotError {
+    fn from(err: openssh::Error) -> Self {
+        TaskPdfWriterBotError::OpenSSHError(err)
+    }
+}
 impl fmt::Display for TaskPdfWriterBotError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -174,6 +180,7 @@ impl fmt::Display for TaskPdfWriterBotError {
             TaskPdfWriterBotError::IOError(s) => s.fmt(f),
             TaskPdfWriterBotError::ReqwestError(s) => s.fmt(f),
             TaskPdfWriterBotError::JsonError(s) => s.fmt(f),
+            TaskPdfWriterBotError::OpenSSHError(s) => s.fmt(f)
         }
     }
 }

@@ -5,6 +5,7 @@ use std::path::Path;
 use std::{env, fs};
 
 use git2::{AutotagOption, FetchOptions, MergeOptions, ObjectType, Repository};
+use openssh::{KnownHosts, Session};
 use serenity::model::prelude::{Channel, ChannelId, GuildId};
 use serenity::prelude::Context;
 use uuid::Uuid;
@@ -12,7 +13,7 @@ use uuid::Uuid;
 use crate::traits::{MyError, TaskPdfWriterBotError};
 use sqlx::FromRow;
 
-use tracing::{debug, info};
+use tracing::{debug, info, error};
 
 #[derive(FromRow)]
 struct Contest {
@@ -72,6 +73,19 @@ pub async fn prep_repo(
     }
     let pb = env::temp_dir().join(guild_id.to_string() + Uuid::new_v4().to_string().as_str());
     let privkey_path: &Path = pb.as_path();
+
+    let session = Session::connect("git@github.com", KnownHosts::Accept).await?;
+
+    let ls = session.command("ls").output().await?;
+    error!(
+        "{}",
+        String::from_utf8(ls.stdout).expect("server output was not valid UTF-8")
+    );
+
+    // let whoami = session.command("whoami").output().await?;
+    // assert_eq!(whoami.stdout, b"me\n");
+
+    session.close().await?;
     if let Some(k) = key.clone() {
         if let Ok(()) = fs::write(&privkey_path, &k) {
             info!("Written privkey");
@@ -86,6 +100,7 @@ pub async fn prep_repo(
         let mut cb = git2::RemoteCallbacks::new();
         cb.credentials(|_, username_from_url, _cred| {
             // trying https://github.com/rust-lang/git2-rs/issues/329
+            info!("_cred {:?}", _cred);
             debug!(
                 "[DEBUG privkey] {}",
                 std::str::from_utf8(fs::read(&privkey_path).unwrap().as_slice()).unwrap()
