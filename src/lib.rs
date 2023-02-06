@@ -6,9 +6,10 @@ mod util;
 use commands::config::ConfigHandler;
 use commands::ping::PingHandler;
 use commands::sendstr::SendStrHandler;
+use futures::future::Lazy;
 use traits::CommandHandle;
 
-use std::env;
+use std::{env, thread::current};
 use traits::CommandHandlerData;
 
 use serenity::async_trait;
@@ -105,14 +106,25 @@ impl EventHandler for Handler {
     }
 }
 
+pub static mut GITHUB_PASSWORD: Option<String> = None;
+
 #[shuttle_service::main]
 async fn serenity(
     #[shuttle_shared_db::Postgres] database: PgPool,
-    #[shuttle_secrets::Secrets] secret_store: SecretStore
+    #[shuttle_secrets::Secrets] secret_store: SecretStore,
 ) -> shuttle_service::ShuttleSerenity {
-    
+    unsafe {
+        GITHUB_PASSWORD = Some(
+            secret_store
+                .get("GITHUB_PASSWORD")
+                .context("'GITHUB_PASSWORD' was not found")?,
+        );
+    }
+
     // Login with a bot token from the environment
-    let token = secret_store.get("DISCORD_TOKEN").context("'DISCORD_TOKEN' was not found")?;
+    let token = secret_store
+        .get("DISCORD_TOKEN")
+        .context("'DISCORD_TOKEN' was not found")?;
     // let database = sqlx::postgres::PgPoolOptions::new()
     //     .max_connections(5)
     //     .connect("postgres://postgres:welcome@localhost/postgres")
@@ -129,7 +141,8 @@ async fn serenity(
     //     .expect("Couldn't connect to database");
 
     // Run the schema migration
-    database.execute(include_str!("../schema.sql"))
+    database
+        .execute(include_str!("../schema.sql"))
         .await
         .context("failed to run migrations")?;
     // sqlx::migrate!("./migrations")

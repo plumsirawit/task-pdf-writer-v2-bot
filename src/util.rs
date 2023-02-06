@@ -7,6 +7,7 @@ use serenity::prelude::Context;
 use uuid::Uuid;
 
 use crate::traits::{MyError, TaskPdfWriterBotError};
+use crate::GITHUB_PASSWORD;
 use sqlx::FromRow;
 
 use tracing::info;
@@ -62,6 +63,7 @@ pub async fn prep_repo(
     url: String,
     key: Option<Vec<u8>>,
 ) -> Result<Repository, TaskPdfWriterBotError> {
+    let github_password = unsafe { GITHUB_PASSWORD.as_ref().unwrap() }.clone();
     let repo_path = env::temp_dir().join(guild_id.to_string()).to_path_buf();
     println!("[DEBUG] {:#?}", repo_path.to_str());
     let exists = match repo_path.try_exists() {
@@ -71,7 +73,7 @@ pub async fn prep_repo(
     let pb = env::temp_dir().join(guild_id.to_string() + Uuid::new_v4().to_string().as_str());
     let privkey_path: &Path = pb.as_path();
     if let Some(k) = key.clone() {
-        if let Ok(()) = fs::write(&privkey_path, &k){
+        if let Ok(()) = fs::write(&privkey_path, &k) {
             info!("Written privkey");
         } else {
             fs::remove_file(&privkey_path)?;
@@ -98,12 +100,7 @@ pub async fn prep_repo(
                         "[DEBUG privkey] {}",
                         std::str::from_utf8(fs::read(&privkey_path).unwrap().as_slice()).unwrap()
                     );
-                    let user = username_from_url.unwrap_or("git");
-                    if _cred.contains(git2::CredentialType::USERNAME) {
-                        return git2::Cred::username(user);
-                    }
-                    let credentials = git2::Cred::ssh_key(user, None, privkey_path, None)?;
-                    Ok(credentials)
+                    git2::Cred::userpass_plaintext("task-pdf-writer-v2-bot", &github_password)
                 });
                 let mut fo = git2::FetchOptions::new();
                 fo.remote_callbacks(cb);
@@ -113,7 +110,11 @@ pub async fn prep_repo(
                 let mut builder = git2::build::RepoBuilder::new();
                 builder.fetch_options(fo);
 
-                println!("[DEBUG IN2] {} {}", url.as_str(), (&repo_path).to_str().unwrap());
+                println!(
+                    "[DEBUG IN2] {} {}",
+                    url.as_str(),
+                    (&repo_path).to_str().unwrap()
+                );
                 //-------------------
                 // clone
                 builder.clone(url.as_str(), &repo_path)?
