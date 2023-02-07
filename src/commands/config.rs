@@ -1,5 +1,3 @@
-use std::{env, fs};
-
 use crate::traits::{CommandHandle, CommandHandlerData, MyError, TaskPdfWriterBotError};
 
 use serenity::async_trait;

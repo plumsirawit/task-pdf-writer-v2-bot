@@ -32,58 +32,6 @@ impl<'a> CommandHandlerData<'a> {
     }
 }
 
-// struct CommandHandler<'a> {
-//     data: CommandHandlerData<'a>,
-// }
-// #[async_trait]
-// impl<'a> CommandHandle<'a> for CommandHandler<'a> {
-//     async fn handle(&'a self) -> Result<(), TaskPdfWriterBotError> {
-//         Err(MyError::new("function 'handle' not implemented"))?
-//     }
-//     async fn run(&'a self) -> Result<String, TaskPdfWriterBotError> {
-//         Err(MyError::new("function 'run' not implemented"))?
-//     }
-//     fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
-//         command
-//     }
-// }
-
-// #[macro_export]
-// macro_rules! defer_handle {
-//     ($self:ident) => {
-//         async fn handle(&'a self) -> Result<(), TaskPdfWriterBotError> {
-//             $self
-//                 .data
-//                 .command
-//                 .create_interaction_response(&$self.data.ctx.http, |response| {
-//                     response.kind(InteractionResponseType::DeferredChannelMessageWithSource)
-//                 })
-//                 .await?;
-//             let file = $self.run().await?;
-//             $self
-//                 .data
-//                 .command
-//                 .create_followup_message(&$self.data.ctx.http, |response| {
-//                     response.add_file(file.as_str())
-//                 })
-//                 .await?;
-//             fs::remove_file(file.to_owned())?;
-
-//             let content = $self.run().await?;
-//             $self
-//                 .data
-//                 .command
-//                 .create_interaction_response(&$self.data.ctx.http, |response| {
-//                     response
-//                         .kind(InteractionResponseType::ChannelMessageWithSource)
-//                         .interaction_response_data(|message| message.content(content))
-//                 })
-//                 .await?;
-//             Ok(())
-//         }
-//     };
-// }
-
 pub async fn immediate_handle<'a>(
     data: &CommandHandlerData<'a>,
     content: String,

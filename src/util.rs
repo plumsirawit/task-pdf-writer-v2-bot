@@ -1,11 +1,9 @@
-use std::fs::File;
-use std::io::Write;
 use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
 use std::{env, fs};
 
-use git2::{AutotagOption, FetchOptions, MergeOptions, ObjectType, Repository};
-use openssh::{KnownHosts, Session, SessionBuilder};
+use git2::Repository;
+use openssh::{KnownHosts, SessionBuilder};
 use serenity::model::prelude::{Channel, ChannelId, GuildId};
 use serenity::prelude::Context;
 use uuid::Uuid;
@@ -13,7 +11,7 @@ use uuid::Uuid;
 use crate::traits::{MyError, TaskPdfWriterBotError};
 use sqlx::FromRow;
 
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 #[derive(FromRow)]
 struct Contest {

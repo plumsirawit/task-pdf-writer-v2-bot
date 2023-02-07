@@ -7,13 +7,10 @@ use commands::config::ConfigHandler;
 use commands::ping::PingHandler;
 use commands::sendstr::SendStrHandler;
 use traits::CommandHandle;
-
-use std::env;
 use traits::CommandHandlerData;
 
 use serenity::async_trait;
 use serenity::model::application::interaction::Interaction;
-use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::model::id::GuildId;
 use serenity::model::prelude::ChannelId;
@@ -23,8 +20,6 @@ use crate::commands::genpdf::GenpdfHandler;
 
 use shuttle_secrets::SecretStore;
 use sqlx::{Executor, PgPool};
-
-use tracing::{error, info};
 
 struct Handler {
     database: sqlx::PgPool,
@@ -78,29 +73,6 @@ impl EventHandler for Handler {
                 "I now have the following guild slash commands on guild {}: {:#?}",
                 guild.id, commands
             );
-            // if !channel_names.contains(&"task-pdf-writer-bot-v2".to_string()) {
-            //     guild
-            //         .id
-            //         .create_channel(&ctx.http, |c| {
-            //             c.name("task-pdf-writer-bot-v2").kind(ChannelType::Text)
-            //         })
-            //         .await
-            //         .unwrap();
-            // }
-
-            // let command_list = Command::get_global_application_commands(&ctx.http)
-            //     .await
-            //     .unwrap();
-
-            // join_all(
-            //     command_list.into_iter().map(|command| {
-            //         Command::delete_global_application_command(&ctx.http, command.id)
-            //     }),
-            // )
-            // .await
-            // .into_iter()
-            // .map(|x| x.unwrap())
-            // .collect()
         }
     }
 }
@@ -132,10 +104,6 @@ async fn serenity(
     database.execute(include_str!("../schema.sql"))
         .await
         .context("failed to run migrations")?;
-    // sqlx::migrate!("./migrations")
-    //     .run(&database)
-    //     .await
-    //     .expect("Couldn't run database migrations");
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
     let client = Client::builder(token, intents)
         .event_handler(Handler { database })
