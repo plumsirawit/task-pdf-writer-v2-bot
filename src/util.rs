@@ -5,7 +5,7 @@ use std::path::Path;
 use std::{env, fs};
 
 use git2::{AutotagOption, FetchOptions, MergeOptions, ObjectType, Repository};
-use openssh::{KnownHosts, Session};
+use openssh::{KnownHosts, Session, SessionBuilder};
 use serenity::model::prelude::{Channel, ChannelId, GuildId};
 use serenity::prelude::Context;
 use uuid::Uuid;
@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::traits::{MyError, TaskPdfWriterBotError};
 use sqlx::FromRow;
 
-use tracing::{debug, info, error};
+use tracing::{debug, error, info};
 
 #[derive(FromRow)]
 struct Contest {
@@ -74,18 +74,9 @@ pub async fn prep_repo(
     let pb = env::temp_dir().join(guild_id.to_string() + Uuid::new_v4().to_string().as_str());
     let privkey_path: &Path = pb.as_path();
 
-    let session = Session::connect("git@github.com", KnownHosts::Accept).await?;
-
-    let ls = session.command("ls").output().await?;
-    error!(
-        "{}",
-        String::from_utf8(ls.stdout).expect("server output was not valid UTF-8")
-    );
-
     // let whoami = session.command("whoami").output().await?;
     // assert_eq!(whoami.stdout, b"me\n");
 
-    session.close().await?;
     if let Some(k) = key.clone() {
         if let Ok(()) = fs::write(&privkey_path, &k) {
             info!("Written privkey");
@@ -93,6 +84,28 @@ pub async fn prep_repo(
             fs::remove_file(&privkey_path)?;
             Err(MyError::new("cannot write to privkey_path"))?
         }
+        fs::set_permissions(&privkey_path, fs::Permissions::from_mode(0o600))?;
+        if (fs::metadata(&privkey_path)?.permissions().mode() & 0o777) != 0o600 {
+            Err(MyError::new(&format!("permissions not properly set, retreived {:o}, expected {:o}", fs::metadata(&privkey_path)?.permissions().mode() & 0o777, 0o600)))?
+        }
+
+        let session = SessionBuilder::default()
+            .keyfile(&privkey_path)
+            .known_hosts_check(KnownHosts::Accept)
+            .connect("git@github.com")
+            .await?;
+        // let session = Session::connect("git@github.com", KnownHosts::Accept).await?;
+
+        let ls = session.command("ls").output().await?;
+        info!(
+            "[Output from SSH] {}",
+            match String::from_utf8(ls.stdout) {
+                Ok(s) => s,
+                Err(e) => format!("{:?}", e)
+            }
+        );
+        session.close().await?;
+
         // https://github.com/rust-lang/git2-rs/issues/394
 
         //---------------------------------
